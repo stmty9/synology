@@ -5,3 +5,8 @@ This is an assortment of random scripts to get more out of synology
 This will fetch a new port from PIA and update Transmission with it.
 
 See [Documentation](pia_port_forward/README.md) for more information
+
+## Transmission post-process unrar
+Unrar necessary files after downloaded
+
+See [Documentation](transmission/README.md) for more information
