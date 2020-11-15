@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import base64  # decoding payload to get the port
-import configparser  # parsing the conf file
 import json  # reading output from pia
 import os  # making curl and transmission calls
 import sys  # reading args
@@ -14,17 +13,18 @@ from datetime import datetime, timedelta  # storing expiration dates and logging
 
 if len(sys.argv) != 2:
     print('ERROR: Please pass in the conf file as the only argument.')
-    print('Example:\n\tpython3 ng-seed-port.py ng-seed-port.conf\n\t./ng-seed-port.py ng-seed-port.conf')
+    print('Example:\n\tpython3 ng-seed-port.py ng-seed-port.json\n\t./ng-seed-port.py ng-seed-port.json')
     print('Current input: {}'.format(sys.argv))
     exit(1)
 
 DEBUG = False
 DATE_FORMAT = '%Y-%m-%d %H%M'
 
-# CONF file to store data to keep between runs
-# I store it relative to the script in ng-seed-port.conf
-CONF = sys.argv[1]
-context = {
+# CONFIG_FILE to store data to keep between runs
+CONFIG_FILE = sys.argv[1]
+
+# this config is the default and is overriden by the contents of the CONFIG_FILE
+config = {
     'user': None,
     'password': None,
     'token': None,
@@ -33,17 +33,8 @@ context = {
     'port_expiration': None,
     'port_renew_by': None,
     'payload': None,
-    'signature': None,
-    'trx_remote': None,
-    'trx_user': None,
-    'trx_password': None,
-    'trx_port_test_delay': 5
+    'signature': None
 }
-parser = configparser.ConfigParser()
-
-# this is the local IP of the 'meta' server when already connected
-local = os.popen('ip route | head -1 | grep tun | awk \'{ print $3 }\'').read().strip()
-
 
 def _print(message: str):
     print('[{dt}] {msg}'.format(dt=datetime.now().strftime('%Y-%m-%d %H:%M:%S'), msg=message))
@@ -65,7 +56,7 @@ def str_to_json(txt: str) -> dict:
     res = None
     try:
         res = json.loads(txt)
-    except BaseException as e:
+    except BaseException:
         _error('Could not convert to json:\n{}'.format(txt))
     return res
 
@@ -83,111 +74,151 @@ def is_expired(dt: str) -> bool:
 
 
 def read_config():
-    # _log(debug='Reading config file: {}'.format(CONF))
-    parser.read(CONF)
-
-    cfg = parser['DEFAULT']
-    for key in context.keys():
-        if key in cfg:
-            context[key] = cfg[key]
-    _log(debug='Using config: {}'.format(context))
-
+    _log(debug='Reading config file: {}'.format(CONFIG_FILE))
+    with open(CONFIG_FILE, 'r') as json_file:
+        config.update(json.load(json_file))
 
 def write_config():
-    # _log(debug='Writing config file: {}'.format(CONF))
-    for key in context.keys():
-        if key is not None:
-            parser.set('DEFAULT', key, str(context[key]))
-
-    with open(CONF, 'w') as f:
-        parser.write(f)
+    _log(debug='Updating config')
+    # remove None values
+    writeable = {k:v for k,v in config.items() if v is not None}
+    with open(CONFIG_FILE, 'w') as outfile:
+        json.dump(writeable, outfile)
 
 
-def get_token() -> bool:
-    if not is_expired(context['token_expiration']):
-        _log('Using Existing token')
-        return False
-    cmd = 'curl -sk -u {user}:{pwd} "https://10.0.0.1/authv3/generateToken"'.format(user=context['user'], pwd=context['password'])
-    _log('Generating token', cmd)
-    result = os.popen(cmd).read()
-    j = str_to_json(result)
-    token = j['token']
-    _log(None, token)
-    context['token'] = token
-    context['token_expiration'] = from_time(datetime.now() + timedelta(days=1))  # auth token lasts for 24hrs
-    return True
+class PIAMeta:
+    # this is the local IP of the 'meta' server when already connected
+    local = None
+    has_new_port = False
+
+    def __init__(self):
+        self.local = os.popen('ip route | head -1 | grep tun | awk \'{ print $3 }\'').read().strip()
+        if self.local is None or self.local == '':
+            _error('It does not look like you are connected to PIA!')
+        
+        self.find_token()
+        self.find_port()
+        success = self.bind_port()
+        if not success:
+            _log('Attempting again.')
+            self.invalidate_exipirations()
+            self.find_token()
+            self.find_port()
+            success = self.bind_port()
+            if not success:
+                _error('2 attempts failed, exiting.')
+
+    def invalidate_exipirations(self) -> None:
+        config['token_expiration'] = None
+        config['port_expiration'] = None
+        config['port_renew_by'] = None
+
+    def find_token(self) -> None:
+        if not is_expired(config['token_expiration']):
+            _log('Using Existing token')
+            return
+        cmd = 'curl -sk -u {user}:{pwd} "https://10.0.0.1/authv3/generateToken"'.format(user=config['user'], pwd=config['password'])
+        _log('Generating token', cmd)
+        result = os.popen(cmd).read()
+        j = str_to_json(result)
+        token = j['token']
+        _log(None, token)
+        config['token'] = token
+        # auth token lasts for 24hrs
+        config['token_expiration'] = from_time(datetime.now() + timedelta(days=1))
+    
+    def find_port(self) -> None:
+        if not is_expired(config['port_expiration']) and not is_expired(config['port_renew_by']):
+            _log('Using Existing port')
+            return
+        cmd = 'curl -skG --data-urlencode "token={token}" "https://{ip}:19999/getSignature"'.format(ip=self.local, token=config['token'])
+        _log('Generating signature', cmd)
+        result = os.popen(cmd).read()
+        _log(None, result)
+        j = str_to_json(result)
+        if j['status'] != 'OK':
+            _error(j)
+
+        # now we need to pull the data from the response
+        config['payload'] = j['payload']
+        config['signature'] = j['signature']
+        payload = str_to_json(base64.b64decode(j['payload']))
+        config['port'] = payload['port']
+
+        # port lasts for 2 months. 58 days should work for dumb February?
+        config['port_expiration'] = from_time(datetime.now() + timedelta(days=58))
+        self.has_new_port = True
+
+    def bind_port(self) -> bool:
+        cmd = 'curl -skG --data-urlencode "payload={payload}" --data-urlencode "signature={signature}" "https://{ip}:19999/bindPort"'.format(
+            payload=config['payload'], signature=config['signature'], ip=self.local
+        )
+        _log('Binding port')
+        result = str_to_json(os.popen(cmd).read())
+        if result['status'] != 'OK':
+            _log(debug='Error binding port: {}\n{}'.format(result['message'], cmd))
+            return False
+        _log(result['message'])
+        config['port_renew_by'] = from_time(datetime.now() + timedelta(minutes=16))  # give us 16m since this runs every 15m
+        return True
 
 
-def get_port() -> bool:
-    if not is_expired(context['port_expiration']) and not is_expired(context['port_renew_by']):
-        _log('Using Existing port')
-        return False
-    cmd = 'curl -skG --data-urlencode "token={token}" "https://{ip}:19999/getSignature"'.format(ip=local, token=context['token'])
-    _log('Generating signature', cmd)
-    result = os.popen(cmd).read()
-    _log(None, result)
-    j = str_to_json(result)
-    if j['status'] != 'OK':
-        _error(j)
-
-    # now we need to pull the data from the response
-    context['payload'] = j['payload']
-    context['signature'] = j['signature']
-    payload = str_to_json(base64.b64decode(j['payload']))
-    context['port'] = payload['port']
-    context['port_expiration'] = from_time(
-        datetime.now() + timedelta(days=58))  # port lasts for 2 months. 58 days should work for dumb February?
-    return True
+class PortChangeConsumer:
+    def consume(self) -> None:
+        _error('Please override `update()`')
 
 
-def bind_port() -> bool:
-    cmd = 'curl -skG --data-urlencode "payload={payload}" --data-urlencode "signature={signature}" "https://{ip}:19999/bindPort"'.format(
-        payload=context['payload'], signature=context['signature'], ip=local
-    )
-    _log('Binding port')
-    result = str_to_json(os.popen(cmd).read())
-    if result['status'] != 'OK':
-        _error('Error binding port: {}\n{}'.format(result['message'], cmd))
-    _log(result['message'])
-    context['port_renew_by'] = from_time(datetime.now() + timedelta(minutes=16))  # give us 16m since this runs every 15m
-    return True
+class TransmissionConsumer(PortChangeConsumer):
+    cfg:dict = None
+
+    def __init__(self):
+        self.cfg = config['transmission']
+        if 'port_test_delay' not in self.cfg:
+            self.cfg['port_test_delay'] = 5 
+
+    def consume(self) -> None:
+        self.update_seed_port()
+        self.test_seed_port()
+
+    def update_seed_port(self):
+        _log('Updating transmission to use port: {}'.format(config['port']))
+        cmd = '{trx} -n {user}:{password} -p {port}'.format(
+            trx=self.cfg['remote'], user=self.cfg['username'], password=self.cfg['password'], port=config['port']
+        )
+        _log(debug=cmd)
+        result = os.popen(cmd).read()
+        if '"success"' not in result:
+            _error(result)
+
+    def test_seed_port(self):
+        _log('Testing port')
+        cmd = '{trx} -n {user}:{password} -pt'.format(
+            trx=self.cfg['remote'], user=self.cfg['username'], password=self.cfg['password']
+        )
+        # give it time to update - sometimes it needed a slight delay
+        _log(debug='Sleeping for {}s'.format(self.cfg['port_test_delay']))
+        time.sleep(self.cfg['port_test_delay'])
+        _log(debug=cmd)
+        result = os.popen(cmd).read()
+        if 'Yes' not in result:
+            _error(result)
+        _log('Port bound successfully')
 
 
-def update_trx_seed_port():
-    _log('Updating transmission to use port: {}'.format(context['port']))
-    cmd = '{trx} -n {user}:{password} -p {port}'.format(
-        trx=context['trx_remote'], user=context['trx_user'], password=context['trx_password'], port=context['port']
-    )
-    _log(debug=cmd)
-    result = os.popen(cmd).read()
-    if '"success"' not in result:
-        _error(result)
-
-    # now let's test to see that it is open
-    _log('Testing port')
-    cmd = '{trx} -n {user}:{password} -pt'.format(
-        trx=context['trx_remote'], user=context['trx_user'], password=context['trx_password']
-    )
-    # give it time to update - sometimes it needed a slight delay
-    _log(debug='Sleeping for {}s'.format(context['trx_port_test_delay']))
-    time.sleep(int(context['trx_port_test_delay']))
-    _log(debug=cmd)
-    result = os.popen(cmd).read()
-    if 'Yes' not in result:
-        _error(result)
-    _log('Port bound successfully')
-
+def get_consumers() -> list:
+    consumers = []
+    if 'transmission' in config:
+        consumers.append(TransmissionConsumer())
+    
+    return filter(lambda consumer: type(consumer) is PortChangeConsumer, consumers)
 
 def main():
     read_config()
-    get_token()
-    is_fresh_port = get_port()
-    bind_port()
-    # I write the config first in case updating fails.
+    pia = PIAMeta()
+    if pia.has_new_port:
+        for c in get_consumers():
+            c.consume()
     write_config()
-    if is_fresh_port:
-        update_trx_seed_port()
-
 
 if __name__ == '__main__':
     main()
