@@ -1,6 +1,0 @@
-[DEFAULT]
-user = $pia_username
-password = $pia_password
-trx_remote = /path/to/transmission-remote
-trx_user = $transmission_username
-trx_password = $username_password
