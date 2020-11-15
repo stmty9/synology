@@ -1,4 +1,4 @@
-# Private Internet Access Next Gen Port Forwarding
+# PIA Next Gen Port Forwarding
 
 This is designed to grab the port and set the port in transmission. This could easily be adapted to work as a shell script as well.
 
@@ -18,18 +18,20 @@ It will honor the following TTLs:
 1. You must already be connected to a PIA VPN Server that supports Port Forwarding
     - Sometimes it might take a little after being connected for these calls to work.
 1. Setup your config file. 
-    1. Copy `cp ng-seed-port.json.sample ng-seed-port.json`
-    1. Populate all the values in `ng-seed-port.json`
-1. Run it `./ng-seed-port.py ng-seed-port.json`
-    - This is also how to call it in the Task Scheduler
+    1. Copy `cp config.json.sample config.json`
+    1. Update username and password in `config.json`
+        - configure a Port Change Consumer (see below)
+1. Run it `./ng-seed-port.py config.json`
 
+#### Notes
 - Everything in the `config` variable will be written to the `json` file dynamically. You can add or remove params to this if you want to
  store them.
 - If you want more verbose output, set the `DEBUG` property inside the script to `True`
 
-
 ## Config File
-The only necessary fields to generate the seed port are your PIA username and password:
+The only necessary fields to generate the seed port are your PIA username and password. You also need to configure a Port Change Consumer if you want to do anything with the port after it's setup.
+
+The script will populate evrything else it needs in the config file after the first run, so make sure the file is writeable.
 ```
 {
     "user": "pia_username",
@@ -37,12 +39,30 @@ The only necessary fields to generate the seed port are your PIA username and pa
 }
 ```
 
-## Seed Port Consumers
-You can define a SeedPortConsumer that runs after the port changes.
+## Port Change Consumers
+All configured Port Change Consumers will get called when the port changes. They have their own sections in the json config used to enable them.
 
-### Existing 
-#### Transmission
-This w
+### Transmission
+This will update transmission with the new port and verify it is open
+
+```
+{
+    "user": "pia_username",
+    "password": "pia_password",
+    "transmission": {
+        "remote": "/usr/local/transmission/bin/transmission-remote",
+        "username": "",
+        "password": "",
+        "port_test_delay": 5
+    }
+}
+```
+- `remote`: The path to the `transmission-remote` command. The default shown is the path to it when installed via the synology package manager for me
+- `port_test_delay`: The delay (seconds) after updating the port before testing it. This is necessary to make sure transmission has had enough time to register the port
+
+### How to Add a new Consumer
+1. Create a new class extending `PortChangeConsumer` with a `consume` function.
+2. Update `def get_consumers() -> list:` with your config key
 
 
 ## References
