@@ -26,7 +26,7 @@ It will honor the following TTLs:
 #### Notes
 - Everything in the `config` variable will be written to the `json` file dynamically. You can add or remove params to this if you want to
  store them.
-- If you want more verbose output, set the `DEBUG` property inside the script to `True`
+- If you want more verbose output, change the log level in the script
 
 ## Config File
 The only necessary fields to generate the seed port are your PIA username and password. You also need to configure a Port Change Consumer if you want to do anything with the port after it's setup.
