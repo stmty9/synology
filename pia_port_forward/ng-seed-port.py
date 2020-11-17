@@ -12,7 +12,7 @@ import logging as log
   See README..md
 '''
 
-log.basicConfig(format='[%(asctime)s] [%(levelname)-5s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=log.INFO)
+log.basicConfig(format='[%(asctime)s] [%(levelname)-5s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=log.DEBUG)
 
 if len(sys.argv) != 2:
     log.error('ERROR: Please pass in the conf file as the only argument.')
@@ -138,6 +138,7 @@ class PIAMeta:
         config['signature'] = j['signature']
         payload = str_to_json(base64.b64decode(j['payload']))
         config['port'] = payload['port']
+        log.debug('Port: {}'.format(config['port']))
 
         # port lasts for 2 months. 58 days should work for dumb February?
         config['port_expiration'] = from_time(datetime.now() + timedelta(days=58))
@@ -204,12 +205,13 @@ def get_consumers() -> list:
     if 'transmission' in config:
         consumers.append(TransmissionConsumer())
     
-    return filter(lambda consumer: type(consumer) is PortChangeConsumer, consumers)
+    return filter(lambda consumer: issubclass(consumer.__class__, PortChangeConsumer), consumers)
 
 def main():
     read_config()
     pia = PIAMeta()
     if pia.has_new_port:
+        log.debug('New port detected. Updating consumers!')
         for c in get_consumers():
             c.consume()
     write_config()
