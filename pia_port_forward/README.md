@@ -1,5 +1,7 @@
 # PIA Next Gen Port Forwarding
 
+**If you need help setting up the VPN on Synoloy, see [Setting up the VPN]**
+
 This is designed to grab the port and set the port in transmission. This could easily be adapted to work as a shell script as well.
 
 This script does the following things:
@@ -24,8 +26,7 @@ It will honor the following TTLs:
 1. Run it `./ng-seed-port.py config.json`
 
 #### Notes
-- Everything in the `config` variable will be written to the `json` file dynamically. You can add or remove params to this if you want to
- store them.
+- Everything in the `config` variable will be written to the `json` file dynamically. You can add or remove params to this if you want to store them.
 - If you want more verbose output, change the log level in the script
 
 ## Config File
@@ -64,17 +65,15 @@ This will update transmission with the new port and verify it is open
 1. Create a new class extending `PortChangeConsumer` with a `consume` function.
 2. Update `def get_consumers() -> list:` with your config key
 
-
 ## References
-[PIA - FOSS] - Sample code of how to automate connecting via OpenVPN and Wireguard. This
-code was referenced heavily in this solution
+[PIA - FOSS] - Sample code of how to automate connecting via OpenVPN and Wireguard. This code was referenced heavily in this solution
 
 [PIA Server List] - This is a JSON dump of al the regions with a server from each
- regions. You can use this to find port forwarding servers.
+ region. You can use this to find port forwarding servers.
  
-[PIA Connection Issues] - I had my connection drop a lot using udp/1198, so I switched to udp/53. We will see if that works
+[PIA Connection Issues] - If you are having issues, this might help
 
-
+[Setting up the VPN]: setting_up_ovpn.md
 [PIA - FOSS]: https://github.com/pia-foss/manual-connections
 [PIA Server List]:https://serverlist.piaservers.net/vpninfo/servers/v4 
 [PIA Connection Issues]: https://www.privateinternetaccess.com/helpdesk/kb/articles/i-have-trouble-connecting-or-the-connection-drops-frequently-changing-ports-4
