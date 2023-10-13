@@ -182,7 +182,7 @@ class TransmissionConsumer(PortChangeConsumer):
         )
         log.debug(cmd)
         result = os.popen(cmd).read()
-        if '"success"' not in result:
+        if 'success' not in result:
             _error(result)
 
     def test_seed_port(self):
